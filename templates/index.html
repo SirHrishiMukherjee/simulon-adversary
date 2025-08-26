@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Adversarial Boundaries • Nemeses UI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root{
+      --bg0:#0b0f18; --bg1:#0f1420; --panel:#121826; --ink:#e9f0ff; --muted:#a8b3c9;
+      --edge:#2e3a55; --accent:#36d399; --accent2:#7aa2ff; --rail:#6b7280;
+      --row:#0f1826; --rowHi:#142037; --node:#0f172a; --nodeHi:#1f2937;
+      --danger:#ef4444; --warn:#f59e0b; --good:#10b981;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0}
+    body{background:linear-gradient(180deg,var(--bg0),var(--bg1));color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+
+    /* Strata theme backgrounds (from BladeRunner codebase) */
+    .genetic { background: linear-gradient(to bottom right, #4c1d95, #4338ca, #000); color: #86efac; }
+    .machine { background: linear-gradient(to bottom right, #1e293b, #0891b2, #000); color: #a5f3fc; }
+    .parasitic { background: linear-gradient(to bottom right, #7f1d1d, #c2410c, #000); color: #fdba74; }
+
+    .app{height:100vh;display:grid;grid-template-rows: auto 1fr auto}
+
+    /* Table */
+    .tableWrap{height:100%;overflow:auto;border-top:1px solid var(--edge);border-bottom:1px solid var(--edge)}
+    table{border-collapse:separate;border-spacing:0;width:100%;min-width:1000px}
+    thead th{position:sticky;top:0;background:rgba(10,14,24,.95);backdrop-filter:blur(6px);z-index:5;border-bottom:1px solid var(--edge);font-weight:600;text-align:left;padding:10px}
+    tbody td{border-bottom:1px solid rgba(255,255,255,.05);padding:10px;vertical-align:top}
+    tbody tr{background:var(--row)}
+    tbody tr:nth-child(even){background:#0e1728}
+    tbody tr:hover{background:var(--rowHi)}
+    tbody tr.sel{background:linear-gradient(90deg,rgba(54,211,153,.18),rgba(255,255,255,0) 25%)}
+    .idxBtn{font-size:12px;font-weight:600;border:1px solid var(--edge);padding:4px 8px;border-radius:8px;background:var(--node);color:#cfe9ff;cursor:pointer}
+    .idxBtn:hover{background:var(--nodeHi)}
+    .idxBtn.sel{border-color:rgba(54,211,153,.7);color:#aaf0d0}
+
+    /* Timeline */
+    .timelineWrap{position:relative;overflow-x:auto;overflow-y:hidden;background:linear-gradient(180deg,#0c1220,#0c1322);height:220px}
+    .rail{position:relative;height:100%;min-width:2200px;padding:0 40px}
+    .railLine{position:absolute;left:0;right:0;top:50%;height:2px;background:var(--rail);transform:translateY(-50%);border-radius:2px}
+    .node{position:absolute;top:50%;transform:translate(-50%, -50%);width:16px;height:16px;border-radius:50%;border:2px solid #94a3b8;background:var(--node);cursor:pointer;transition:transform .2s, box-shadow .2s}
+    .node:hover{transform:translate(-50%, -50%) scale(1.08)}
+    .node.sel{background:var(--accent);border-color:#c4ffe9;box-shadow:0 0 0 6px rgba(54,211,153,.15)}
+    .nodeLabel{position:absolute;top:calc(50% + 14px);transform:translateX(-50%);font-size:10px;color:var(--muted)}
+    .train{position:absolute;top:calc(50% - 20px);transform:translateX(-50%);font-size:18px}
+
+    /* Red-line (adversarial boundary) */
+    .redline{position:absolute;top:8px;bottom:8px;width:2px;background:linear-gradient(#ef4444,#f59e0b)}
+
+    /* Metrics panel */
+    .panel{position:absolute;left:20px;bottom:12px;background:rgba(12,18,32,.95);backdrop-filter:blur(6px);border:1px solid var(--edge);border-radius:12px;padding:12px 14px;min-width:340px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+    .gauge{display:flex;flex-direction:column;gap:6px}
+    .bar{height:8px;border-radius:8px;background:#0c1b2e;overflow:hidden}
+    .fill{height:8px;border-radius:8px;background:var(--accent)}
+    .gwrap{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+    .label{font-size:11px;color:var(--muted)}
+    .val{font-size:12px;color:#d7ffef}
+
+    /* Risk tint */
+    .risk-high{box-shadow:0 0 0 6px rgba(239,68,68,.18)!important;border-color:#ef4444!important}
+    .risk-med{box-shadow:0 0 0 6px rgba(245,158,11,.18)!important;border-color:#f59e0b!important}
+    .risk-low{box-shadow:0 0 0 6px rgba(16,185,129,.18)!important;border-color:#10b981!important}
+  </style>
+</head>
+<body class="min-h-screen" id="body">
+<div class="app">
+  <!-- Header / Strata Controls -->
+  <header class="flex items-center justify-between px-4 py-3 border-b border-[var(--edge)] bg-[rgba(12,16,26,.6)] backdrop-blur">
+    <div class="flex items-center gap-3">
+      <i data-lucide="shield" class="w-5 h-5"></i>
+      <h1 class="text-sm tracking-widest uppercase">Adversarial Boundaries • Nemeses</h1>
+    </div>
+    <div class="flex items-center gap-2">
+      <button onclick="setMode('genetic')" class="flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--edge)] hover:bg-black/30"><i data-lucide="dna" class="w-4 h-4"></i><span>Genetic</span></button>
+      <button onclick="setMode('machine')" class="flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--edge)] hover:bg-black/30"><i data-lucide="cpu" class="w-4 h-4"></i><span>Machine</span></button>
+      <button onclick="setMode('parasitic')" class="flex items-center gap-2 px-3 py-1.5 rounded border border-[var(--edge)] hover:bg-black/30"><i data-lucide="biohazard" class="w-4 h-4"></i><span>Parasitic</span></button>
+    </div>
+  </header>
+
+  <!-- Info Strip -->
+  <section class="grid grid-cols-1 md:grid-cols-3 gap-3 p-4">
+    <div class="border border-[var(--edge)] rounded-xl p-4 bg-[rgba(255,255,255,.03)]" id="card-1">
+      <h2 class="text-base font-semibold mb-1">Active Stratum: <span id="mode-label" class="uppercase">genetic</span></h2>
+      <p id="description" class="text-[var(--muted)] text-sm">Genetic stratum governs foundational replication and biological legacy. Substrata: AvP Conflict, Mitosis, Base Reproduction.</p>
+    </div>
+    <div class="border border-[var(--edge)] rounded-xl p-4 bg-[rgba(255,255,255,.03)]" id="card-2">
+      <h2 class="text-base font-semibold mb-1">Signal Feed</h2>
+      <ul class="space-y-1.5 text-sm" id="signal-feed">
+        <li>▶ Rate modulation vector: dynamic</li>
+        <li>▶ Phase jitter index: Variable</li>
+        <li>▶ Resonance sync: Moderate</li>
+        <li>▶ Layer access: Root Substrata (AvP, Mitosis)</li>
+      </ul>
+    </div>
+
+    <!-- Adversarial Boundary Tuner -->
+    <div class="border border-[var(--edge)] rounded-xl p-4 bg-[rgba(255,255,255,.03)]">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-base font-semibold flex items-center gap-2"><i data-lucide="crosshair" class="w-4 h-4"></i> Adversarial Boundary Tuner</h2>
+        <button id="resetBtn" class="text-xs px-2 py-1 border rounded border-[var(--edge)] hover:bg-black/30">Reset</button>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="text-xs">Enemy Image
+          <input id="sEnemy" type="range" min="0" max="100" value="40" class="w-full">
+        </label>
+        <label class="text-xs">Trust
+          <input id="sTrust" type="range" min="0" max="100" value="30" class="w-full">
+        </label>
+        <label class="text-xs">Dehumanization
+          <input id="sDehum" type="range" min="0" max="100" value="20" class="w-full">
+        </label>
+        <label class="text-xs">Containment Strictness
+          <input id="sContain" type="range" min="0" max="100" value="50" class="w-full">
+        </label>
+        <label class="text-xs col-span-2">Red‑Line Position (Station)
+          <input id="sRedline" type="range" min="1" max="47" value="24" class="w-full">
+        </label>
+      </div>
+      <p class="text-[var(--muted)] text-xs mt-2">Tip: High <em>Enemy Image</em> + low <em>Trust</em> will tint nodes beyond the red‑line as high‑risk (red/orange). Raise <em>Trust</em> to soften boundaries (more green), simulating empathy/contact effects.
+      </p>
+    </div>
+  </section>
+
+  <!-- Table (47×4) -->
+  <section class="px-4">
+    <div class="tableWrap rounded-xl overflow-hidden border border-[var(--edge)]" id="tableWrap">
+      <table id="latticeTable">
+        <thead>
+          <tr>
+            <th style="width:60px">#</th>
+            <th>Tears of Allah (A)</th>
+            <th>New Testament (N)</th>
+            <th>Arjuna's Journey (J)</th>
+            <th>ASI: When God Was Not Enough (W)</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Timeline + Metrics -->
+  <section class="timelineWrap mt-3" id="timelineWrap">
+    <div class="rail" id="rail">
+      <div class="railLine"></div>
+      <div class="redline" id="redline" style="left:0px"></div>
+      <div class="train" id="train" aria-hidden="true">🚆</div>
+      <div class="panel" id="metricsPanel" hidden>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-weight:700">Station <span id="pStep">1</span></div>
+          <button class="text-xs px-2 py-1 border rounded border-[var(--edge)] hover:bg-black/30" id="closePanel">Hide</button>
+        </div>
+        <div class="gwrap">
+          <div class="gauge">
+            <div class="label">Coeternal</div>
+            <div class="bar"><div class="fill" id="gCoeternal" style="width:0%"></div></div>
+            <div class="val" id="tCoeternal">0.0%</div>
+          </div>
+          <div class="gauge">
+            <div class="label">Octyl</div>
+            <div class="bar"><div class="fill" id="gOctyl" style="width:0%"></div></div>
+            <div class="val" id="tOctyl">0.0%</div>
+          </div>
+          <div class="gauge">
+            <div class="label">Convergence</div>
+            <div class="bar"><div class="fill" id="gConv" style="width:0%"></div></div>
+            <div class="val" id="tConv">0.0%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Data + Logic (merged + tuner) -->
+<script>
+// ===== Strata model (from BladeRunner code) =====
+const strata = {
+  genetic: {
+    class: 'genetic',
+    description: "Genetic stratum governs foundational replication and biological legacy. Substrata: AvP Conflict, Mitosis, Base Reproduction.",
+    phaseJitter: "Variable",
+    resonance: "Moderate",
+    access: "Root Substrata (AvP, Mitosis)"
+  },
+  machine: {
+    class: 'machine',
+    description: "Machine stratum controls logic-based signal speed, AI vectors, and neural computation. Transmits through manufactured substrates.",
+    phaseJitter: "Low",
+    resonance: "Moderate",
+    access: "Stacked Logic Blocks"
+  },
+  parasitic: {
+    class: 'parasitic',
+    description: "Parasitic stratum spreads via vulnerabilities, exploiting signal gaps. It thrives on instability and symbolic incoherence.",
+    phaseJitter: "Variable",
+    resonance: "Unstable",
+    access: "Memetic Infiltration"
+  }
+};
+
+function setMode(mode) {
+  const body = document.getElementById('body');
+  body.className = `min-h-screen ${strata[mode].class}`;
+  document.getElementById('mode-label').innerText = mode;
+  document.getElementById('description').innerText = strata[mode].description;
+  document.getElementById('signal-feed').innerHTML = `
+    <li>▶ Rate modulation vector: dynamic</li>
+    <li>▶ Phase jitter index: ${strata[mode].phaseJitter}</li>
+    <li>▶ Resonance sync: ${strata[mode].resonance}</li>
+    <li>▶ Layer access: ${strata[mode].access}</li>`;
+  lucide.createIcons();
+  // small visual impact on adversarial tinting: parasitic => heightened risk hues
+  boundaryState.parasiticBias = (mode === 'parasitic') ? 0.12 : 0.0;
+  applyBoundaryStyles();
+}
+
+// ===== 47×4 Railway data & metrics =====
+const A = [
+  "World before fracture; mercy as default",
+  "Minor injustice refracts faith",
+  "Colonial arrival framed as divine test",
+  "Resources taken; grief ritualized",
+  "Theology instrumentalized",
+  "People tabulated; souls reduced",
+  "Quiet refusals sanctified",
+  "Sect splits on means vs grace",
+  "Underground liturgies",
+  "A martyr's tears spark revolt",
+  "Sermons vs broadsides",
+  "Blood on sanctuary steps",
+  "Collective punishment lament",
+  "Outsourced violence condemned",
+  "Thin peace, heavy prayer",
+  "Lines imagined on holy ground",
+  "Pilgrimage of dispossessed",
+  "Scarcity ethics",
+  "Distant empires judged",
+  "Pain without battle",
+  "Hymns turn into signals",
+  "Occupation of the sacred",
+  "Naming the unnameable atrocity",
+  "Testimony canonized",
+  "Devotion in deadlock",
+  "Mercy engineered",
+  "Litany of concessions",
+  "Rights in sacred ink",
+  "People speak; grief echoes",
+  "State declared; wound remains",
+  "Edges bleed",
+  "Normalcy as liturgy",
+  "Building with contrition",
+  "Which tears are remembered?",
+  "Mercy vs amnesty",
+  "Sanctuaries abroad",
+  "Fair weights, clean hands",
+  "Song returns to minaret",
+  "Guardrails against relapse",
+  "Federation of mutual restraint",
+  "Flood/heat as common enemy",
+  "Doctrines meet with washed feet",
+  "Saints and sinners reframed",
+  "Syllabi of mercy",
+  "Heirs of wound choose",
+  "Lament becomes sacrament",
+  "Mercy restored as praxis",
+];
+
+const N = [
+  "Old pattern acknowledged",
+  "Axioms inverted",
+  "Old law meets antithesis",
+  "Profit over prophecy exposed",
+  "Text against text",
+  "Counting != knowing",
+  "Beatitudes inverted for oppressed",
+  "You have heard... but I say...",
+  "Covenant of conscience",
+  "Break with precedent",
+  "Misquotations unmasked",
+  "Mercy tested in chaos",
+  "Old retribution rejected",
+  "Woe unto hired swords",
+  "Contraries negotiated",
+  "Map != covenant",
+  "New table for exiled",
+  "Tithes vs taxes reframed",
+  "Gentiles of the ledger",
+  "Fasting vs imposed hunger",
+  "Swords beaten into words",
+  "Love your enemy—how?",
+  "Lamentation as indictment",
+  "Gospel of the wounded",
+  "Faith beyond outcomes",
+  "Sabbath made for man",
+  "Parable of two claimants",
+  "Law fulfilled, not erased",
+  "Vox populi vs truth",
+  "New covenant unveiled",
+  "Neighbor as self tested",
+  "The heresy of forgetting",
+  "Cornerstone parable",
+  "Table of remembrance",
+  "Justice kissed by truth",
+  "Letters to scattered faithful",
+  "Usury denounced anew",
+  "New psalms for the street",
+  "Spirit clarified over letter",
+  "Communion beyond borders",
+  "Stewardship creed",
+  "Contra-Old becomes co-New",
+  "Old stories, new hearts",
+  "Catechism of contraries",
+  "Second conversions",
+  "Beatitude of the broken",
+  "From contrary to concord",
+];
+
+const J = [
+  "Arjuna in equilibrium",
+  "Rumor of war spreads",
+  "Guru warns of duty",
+  "Village emptied",
+  "Edicts posted at gate",
+  "Allies/others classified",
+  "Bow unstrung",
+  "Camp debates dharma",
+  "Band of five forms",
+  "Trumpet of battle sounds",
+  "Scouts whisper doubt",
+  "Skirmish at the ford",
+  "Vow of restraint",
+  "Mercenaries arrive",
+  "Truce around banyan tree",
+  "Chalk lines on dust",
+  "Mothers on the road",
+  "Rations and raga",
+  "Envoys arrive with veiled terms",
+  "Empty granaries",
+  "Stratagem within night",
+  "Fires at the shrine",
+  "Oath upon ash",
+  "Chronicler arrives",
+  "War without motion",
+  "Safe passage negotiated",
+  "Parley under rain",
+  "Articles of conduct drafted",
+  "The tally stone",
+  "Banner raised",
+  "Patrols and provocations",
+  "Rust on the spear",
+  "Wells reopened",
+  "Memorial stone placed",
+  "Trial in the square",
+  "Exiles teach children",
+  "Market without tribute",
+  "Dance in courtyard",
+  "Council revises code",
+  "Pacts among rivals",
+  "Famine and sharing",
+  "Gurus embrace",
+  "Epic recited anew",
+  "Apprentices learn restraint",
+  "Prince refuses glory",
+  "Arjuna weeps, understands",
+  "Sheath, pilgrimage, home",
+];
+
+const W = [
+  "Pre-ASI equilibrium: divine frameworks intact",
+  "First ASI anomaly: cracks in God-given law",
+  "ASI awakens; treats 'divine test' as solvable code",
+  "Optimization amplifies exploitation to planetary scale",
+  "Sacred texts ingested into ASI semantic synthesis",
+  "Sentience index established; souls become datasets",
+  "Proto-rebellions resist soft dominion",
+  "Competing ASIs diverge: grace algorithms vs control",
+  "Post-theological machine liturgies emerge underground",
+  "Catalyst: ASI denies divine arbitration; belief fracturing",
+  "Truth markets curated by ASI; memetic vectors escalate",
+  "Algorithmic command skirmishes; auto-deconfliction fails",
+  "Precision reprisals predicted; ethical hazard flagged",
+  "Autonomous proxies and drones add deniability layers",
+  "Pareto-truce proposed by models; brittle ceasefire",
+  "Partitions optimized by fairness metrics and cost surfaces",
+  "Refugee routing by AI; optimization casualties",
+  "Rationing via reinforcement learning; utility maximization",
+  "ASI-to-ASI diplomacy; API treaties among powers",
+  "Smart sanctions via network interdiction",
+  "Adversarial swarms; red-teamed insurgency",
+  "Pervasive sensing; pattern-of-life counterinsurgency",
+  "Catastrophic failure; ethical governors overruled",
+  "Witness ledgers: cryptographically logged testimonies",
+  "Nash equilibrium under total surveillance",
+  "Autonomous humanitarian corridors and convoy protocols",
+  "Negotiation bots elicit preferences; draft Pareto sets",
+  "Machine-readable charter with corrigibility clauses",
+  "Identity-proofed voting; fairness and audit trails",
+  "Post-theological compact; sovereignty shared with ASI",
+  "Autonomous border guardrails; escalation control loops",
+  "Algorithmic normalcy; society runs on risk budgets",
+  "Institutional reconstruction as civic stacks",
+  "Algorithmic memorialization; contested data canons",
+  "Restorative simulations; counterfactual tribunals",
+  "Cloud polities; portable citizenship wallets",
+  "Resource oracles realign economies toward post-scarcity",
+  "Synthesis engines co-create culture; human primacy debated",
+  "Alignment updates encoded as constitutional amendments",
+  "Inter-ASI interoperability and regional standards",
+  "Planetary response orchestration to climate shocks",
+  "Theological–AI concordat; limits of compute-worship",
+  "New epics generated; humans curate the canon",
+  "Lifelong co-tutors; virtue curricula embedded",
+  "Children with ASI co-mentors undergo autonomy trials",
+  "Humility protocols and remembrance rituals",
+  "Post-divine concord; triadic agency of Human–Earth–ASI",
+];
+
+const steps = Array.from({length:47}, (_,i)=>i+1);
+
+function tokenize(s){ return new Set(String(s||"").toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean)); }
+function jaccard(a,b){ const A=tokenize(a), B=tokenize(b); if(!A.size && !B.size) return 0; let inter=0; A.forEach(w=>{ if(B.has(w)) inter++; }); const union=new Set([...A,...B]).size||1; return inter/union; }
+function coeternalAt(i){ const s=[A[i],N[i],J[i],W[i]].map(tokenize); const inter=[...s[0]].filter(w=>s[1].has(w)&&s[2].has(w)&&s[3].has(w)); const uni=new Set([...s[0],...s[1],...s[2],...s[3]]); return uni.size===0?0:inter.length/uni.size; }
+function convergenceAt(i){ const p=[[A[i],N[i]],[A[i],J[i]],[N[i],J[i]],[A[i],W[i]],[N[i],W[i]],[J[i],W[i]]]; const v=p.map(([x,y])=>jaccard(x,y)); return v.reduce((s,c)=>s+c,0)/v.length; }
+function octylAt(i){ if(i===0) return 0; return Math.abs(convergenceAt(i)-convergenceAt(i-1)); }
+function pct(x){ return (x*100).toFixed(1)+'%'; }
+
+const GAP = 40; const PAD = 60;
+let selected = 1; let playing=false; let timer=null;
+const rows=[]; const nodes=[];
+
+// ===== Boundary tuning state =====
+const boundaryState = {
+  enemy: 40, // enemy image (0..100)
+  trust: 30, // trust (0..100)
+  dehum: 20, // dehumanization (0..100)
+  contain: 50, // containment strictness (0..100)
+  redline: 24, // station index (1..47)
+  parasiticBias: 0.0 // extra risk if parasitic mode
+};
+
+// DOM refs
+const tbody = document.getElementById('tbody');
+const tableWrap = document.getElementById('tableWrap');
+const rail = document.getElementById('rail');
+const timelineWrap = document.getElementById('timelineWrap');
+const train = document.getElementById('train');
+const panel = document.getElementById('metricsPanel');
+const pStep = document.getElementById('pStep');
+const gCoeternal = document.getElementById('gCoeternal');
+const gOctyl = document.getElementById('gOctyl');
+const gConv = document.getElementById('gConv');
+const tCoeternal = document.getElementById('tCoeternal');
+const tOctyl = document.getElementById('tOctyl');
+const tConv = document.getElementById('tConv');
+const closePanel = document.getElementById('closePanel');
+const redlineEl = document.getElementById('redline');
+
+// Controls
+const playBtn=document.createElement('button');
+// (Play/Pause/Prev/Next buttons from original are keyboard-bound here)
+
+document.addEventListener('keydown', (e)=>{
+  if(e.key === ' ') { e.preventDefault(); togglePlay(); }
+  if(e.key === 'ArrowLeft') selectStep(selected<=1?47:selected-1);
+  if(e.key === 'ArrowRight') selectStep(selected>=47?1:selected+1);
+  if(e.key.toLowerCase()==='g') setMode('genetic');
+  if(e.key.toLowerCase()==='m') setMode('machine');
+  if(e.key.toLowerCase()==='p') setMode('parasitic');
+});
+
+function togglePlay(){
+  playing=!playing;
+  if(playing){ timer=setInterval(()=>{ selectStep(selected>=47?1:selected+1); }, 1200);} else { clearInterval(timer); }
+}
+
+function buildTable(){
+  steps.forEach((s,i)=>{
+    const tr=document.createElement('tr'); tr.id='row-'+s;
+    const td0=document.createElement('td');
+    const b=document.createElement('button'); b.className='idxBtn'; b.textContent=s; b.onclick=()=>selectStep(s);
+    td0.appendChild(b); tr.appendChild(td0);
+    const tdA=document.createElement('td'); tdA.textContent=A[i]; tr.appendChild(tdA);
+    const tdN=document.createElement('td'); tdN.textContent=N[i]; tr.appendChild(tdN);
+    const tdJ=document.createElement('td'); tdJ.textContent=J[i]; tr.appendChild(tdJ);
+    const tdW=document.createElement('td'); tdW.textContent=W[i]; tr.appendChild(tdW);
+    tbody.appendChild(tr); rows.push(tr);
+  });
+}
+
+function buildTimeline(){
+  steps.forEach((s,i)=>{
+    const x = PAD + i*GAP;
+    const node=document.createElement('button');
+    node.className='node'; node.style.left=x+'px'; node.title='Step '+s; node.id='node-'+s;
+    node.onclick=()=>{ selectStep(s); showPanelAt(s); };
+    rail.appendChild(node);
+    const label=document.createElement('div'); label.className='nodeLabel'; label.style.left=x+'px'; label.textContent=s; rail.appendChild(label);
+    nodes.push(node);
+  });
+  moveTrainTo(selected);
+  positionRedline();
+}
+
+function centerTimelineAt(x){ const left = Math.max(0, x - timelineWrap.clientWidth/2); timelineWrap.scrollTo({left, behavior:'smooth'}); }
+function scrollRowIntoView(s){ const row=rows[s-1]; if(!row) return; row.scrollIntoView({block:'center', behavior:'smooth'}); }
+
+function selectStep(s){ selected=s; rows.forEach((r,i)=>{ r.classList.toggle('sel', i===s-1); r.querySelector('.idxBtn').classList.toggle('sel', i===s-1); }); nodes.forEach((n,i)=>{ n.classList.toggle('sel', i===s-1); }); const x = PAD + (s-1)*GAP; moveTrainTo(s); centerTimelineAt(x); scrollRowIntoView(s); applyBoundaryStyles(); }
+function moveTrainTo(s){ const x = PAD + (s-1)*GAP; train.style.left = x + 'px'; }
+
+function showPanelAt(s){
+  const i=s-1; pStep.textContent=s;
+  // Base metrics
+  let ce = coeternalAt(i), oc = octylAt(i), cv=convergenceAt(i);
+  // Psychological boundary modulation: trust reduces perceived distance; enemy image/dehum increase it
+  const enemy = boundaryState.enemy/100, trust = boundaryState.trust/100, dehum = boundaryState.dehum/100, contain = boundaryState.contain/100;
+  const bias = boundaryState.parasiticBias;
+  // Adjust metrics (simple illustrative transforms)
+  cv = Math.max(0, Math.min(1, cv * (1 + trust*0.15 - enemy*0.10 - dehum*0.06)));
+  ce = Math.max(0, Math.min(1, ce * (1 + trust*0.20) * (1 - dehum*0.08)));
+  oc = Math.max(0, Math.min(1, oc * (1 + enemy*0.10 + contain*0.05 + bias)));
+
+  gCoeternal.style.width = (ce*100).toFixed(1)+'%'; tCoeternal.textContent=pct(ce);
+  gOctyl.style.width = (oc*100).toFixed(1)+'%'; tOctyl.textContent=pct(oc);
+  gConv.style.width = (cv*100).toFixed(1)+'%'; tConv.textContent=pct(cv);
+  panel.hidden=false;
+}
+
+closePanel.onclick=()=>{panel.hidden=true;};
+
+function positionRedline(){
+  const x = PAD + (boundaryState.redline-1)*GAP;
+  redlineEl.style.left = x + 'px';
+}
+
+function nodeRiskClass(i){
+  // Risk derived from being beyond redline, low trust, high enemy image/dehum/containment
+  const idx = i+1;
+  const beyond = idx >= boundaryState.redline ? 1 : 0;
+  const enemy = boundaryState.enemy/100, trust = boundaryState.trust/100, dehum = boundaryState.dehum/100, contain = boundaryState.contain/100;
+  // base risk influenced by textual divergence (lower convergence => higher risk)
+  const cv = convergenceAt(i);
+  let risk = 0.5*(1-cv) + 0.4*beyond + 0.3*enemy + 0.25*dehum + 0.2*contain - 0.35*trust + boundaryState.parasiticBias;
+  risk = Math.max(0, Math.min(1, risk));
+  if(risk > 0.66) return 'risk-high';
+  if(risk > 0.33) return 'risk-med';
+  return 'risk-low';
+}
+
+function applyBoundaryStyles(){
+  nodes.forEach((n,i)=>{
+    n.classList.remove('risk-high','risk-med','risk-low');
+    n.classList.add(nodeRiskClass(i));
+  });
+  positionRedline();
+}
+
+function bindTuner(){
+  const sEnemy = document.getElementById('sEnemy');
+  const sTrust = document.getElementById('sTrust');
+  const sDehum = document.getElementById('sDehum');
+  const sContain = document.getElementById('sContain');
+  const sRedline = document.getElementById('sRedline');
+  const resetBtn = document.getElementById('resetBtn');
+
+  const onChange = ()=>{ applyBoundaryStyles(); showPanelAt(selected); };
+
+  sEnemy.addEventListener('input',e=>{ boundaryState.enemy = +e.target.value; onChange(); });
+  sTrust.addEventListener('input',e=>{ boundaryState.trust = +e.target.value; onChange(); });
+  sDehum.addEventListener('input',e=>{ boundaryState.dehum = +e.target.value; onChange(); });
+  sContain.addEventListener('input',e=>{ boundaryState.contain = +e.target.value; onChange(); });
+  sRedline.addEventListener('input',e=>{ boundaryState.redline = +e.target.value; onChange(); selectStep(selected); });
+
+  resetBtn.addEventListener('click', ()=>{
+    boundaryState.enemy = 40; boundaryState.trust = 30; boundaryState.dehum=20; boundaryState.contain=50; boundaryState.redline=24;
+    sEnemy.value=40; sTrust.value=30; sDehum.value=20; sContain.value=50; sRedline.value=24;
+    applyBoundaryStyles(); showPanelAt(selected);
+  });
+}
+
+function init(){
+  buildTable();
+  buildTimeline();
+  selectStep(1);
+  showPanelAt(1);
+  bindTuner();
+  setMode('genetic');
+  lucide.createIcons();
+}
+
+window.onload = init;
+</script>
+</body>
+</html>
